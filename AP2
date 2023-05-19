@@ -1,0 +1,137 @@
+CREATE DATABASE Taxistas;
+USE Taxistas;
+
+CREATE TABLE pessoas (
+  id_pessoa INTEGER PRIMARY KEY,
+  nome VARCHAR(50),
+  login VARCHAR(20),
+  senha VARCHAR(20)
+);
+
+CREATE TABLE clientes (
+  id_cliente INTEGER PRIMARY KEY,
+  id_pessoa INTEGER,
+  numero_corridas INTEGER,
+  FOREIGN KEY (id_pessoa) REFERENCES pessoas(id_pessoa)
+);
+
+CREATE TABLE administradores (
+  id_administrador INTEGER PRIMARY KEY,
+  id_pessoa INTEGER,
+  data_despesa DATE,
+  valor DOUBLE,
+  FOREIGN KEY (id_pessoa) REFERENCES pessoas(id_pessoa)
+);
+
+CREATE TABLE funcionarios (
+  id_funcionario INTEGER PRIMARY KEY,
+  id_pessoa INTEGER,
+  cnpj VARCHAR(18),
+  FOREIGN KEY (id_pessoa) REFERENCES pessoas(id_pessoa)
+);
+
+CREATE TABLE despesas (
+  id_despesa INTEGER PRIMARY KEY,
+  id_administrador INTEGER,
+  data_despesa DATE,
+  valor DOUBLE,
+  FOREIGN KEY (id_administrador) REFERENCES administradores(id_administrador)
+);
+
+CREATE TABLE veiculos (
+  id_veiculo INTEGER PRIMARY KEY,
+  id_administracao INTEGER,
+  marca VARCHAR(30),
+  ano INTEGER,
+  placa VARCHAR(15),
+  FOREIGN KEY (id_administracao) REFERENCES administradores(id_administrador)
+);
+
+CREATE TABLE corridas (
+  id_corrida INTEGER PRIMARY KEY,
+  id_veiculo INTEGER,
+  id_cliente INTEGER,
+  destino VARCHAR(50),
+  data_corrida DATE,
+  horario TIME,
+  valor DOUBLE,
+  km INTEGER,
+  FOREIGN KEY (id_veiculo) REFERENCES veiculos(id_veiculo),
+  FOREIGN KEY (id_cliente) REFERENCES clientes(id_cliente)
+);
+
+-- Inserindo registros nas tabelas relacionadas
+INSERT INTO pessoas (id_pessoa, nome, login, senha)
+VALUES
+  (1, 'Cliente 1', 'cliente1', 'senha1'),
+  (2, 'Cliente 2', 'cliente2', 'senha2');
+
+INSERT INTO clientes (id_cliente, id_pessoa, numero_corridas)
+VALUES
+  (1, 1, 0),
+  (2, 2, 0);
+
+INSERT INTO administradores (id_administrador, id_pessoa, data_despesa, valor)
+VALUES
+  (1, 1, '2015-07-01', 100.0),
+  (2, 2, '2015-07-02', 150.0);
+
+INSERT INTO veiculos (id_veiculo, id_administracao, marca, ano, placa)
+VALUES
+  (1, 1, 'Marca 1', 2021, 'ABC123'),
+  (2, 2, 'Marca 2', 2022, 'DEF456');
+
+CREATE VIEW view_total_corridas_km_media AS
+SELECT
+  a.id_administrador,
+  COUNT(c.id_corrida) AS TotalCorridas,
+  AVG(c.km) AS MediaKm
+FROM
+  administradores a
+  JOIN veiculos v ON a.id_administrador = v.id_administracao
+  JOIN corridas c ON v.id_veiculo = c.id_veiculo
+WHERE
+  MONTH(c.data_corrida) = 7 AND YEAR(c.data_corrida) = 2015
+GROUP BY
+  a.id_administrador;
+  
+  SELECT * FROM view_total_corridas_km_media;
+
+-- Criar a stored procedure para inclusão ou exclusão na tabela FluxoCaixa
+DELIMITER $$
+CREATE PROCEDURE atualizar_fluxo_caixa_sp(IN valor DECIMAL(10, 2), IN data_despesa DATE, IN exclusao BOOLEAN)
+BEGIN
+  DECLARE data_mes DATE;
+  
+  -- Obter o primeiro dia do mês da data da despesa
+  SET data_mes = DATE_FORMAT(data_despesa, '%Y-%m-01');
+  
+  -- Verificar se já existe um registro para o mês na tabela FluxoCaixa
+  IF EXISTS (SELECT 1 FROM FluxoCaixa WHERE mes = DATE_FORMAT(data_mes, '%b/%Y')) THEN
+    -- Atualizar o saldo acumulado para o mês existente
+    IF exclusao THEN
+      UPDATE FluxoCaixa SET saldo = saldo - valor WHERE mes = DATE_FORMAT(data_mes, '%b/%Y');
+    ELSE
+      UPDATE FluxoCaixa SET saldo = saldo + valor WHERE mes = DATE_FORMAT(data_mes, '%b/%Y');
+    END IF;
+  ELSE
+    -- Inserir um novo registro para o mês na tabela FluxoCaixa
+    IF exclusao THEN
+      INSERT INTO FluxoCaixa (mes, saldo) VALUES (DATE_FORMAT(data_mes, '%b/%Y'), -valor);
+    ELSE
+      INSERT INTO FluxoCaixa (mes, saldo) VALUES (DATE_FORMAT(data_mes, '%b/%Y'), valor);
+    END IF;
+  END IF;
+END$$
+DELIMITER ;
+
+-- Alterar a trigger para chamar a stored procedure
+DELIMITER $$
+CREATE TRIGGER atualizar_fluxo_caixa AFTER INSERT ON despesas
+FOR EACH ROW
+BEGIN
+  CALL atualizar_fluxo_caixa_sp(NEW.valor, NEW.data_despesa, FALSE);
+END$$
+DELIMITER ;
+
+
